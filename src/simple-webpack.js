@@ -16,6 +16,11 @@ readCode = (filePath) => {
   // 遍历 ast，找出依赖
   traverse(ast, {
     ImportDeclaration({ node }) {
+      // 改为从绝对路径 import
+      node.source.value = path.resolve(
+        path.dirname(filePath),
+        node.source.value
+      );
       dependiences.push(node.source.value);
     },
   });
@@ -39,11 +44,9 @@ const getAllDependencies = (filePath) => {
   const dependencies = [entryObj];
 
   for (const dependency of dependencies) {
-    const curDirname = path.dirname(dependency.filePath);
-    for (const relativePath of dependency.dependiences) {
-      const absolutePath = path.join(curDirname, relativePath);
+    for (const absolutePath of dependency.dependiences) {
       const child = readCode(absolutePath);
-      child.relativePath = relativePath;
+      child.filePath = absolutePath;
       dependencies.push(child);
     }
   }
@@ -53,13 +56,17 @@ const getAllDependencies = (filePath) => {
 
 function bundle(fileName) {
   const dependencies = getAllDependencies(fileName);
-  let modulesStr = '';
-  dependencies.forEach(dependency => {
-      const key = dependency.relativePath || dependency.filePath;
-      modulesStr += `'${key}': function(module, exports, require) {
-          ${ dependency.code }
-      },`
-  })
+  const cache = {};
+  let modulesStr = "";
+  dependencies.forEach((dependency) => {
+    const key = dependency.filePath;
+    if (cache[key]) return;
+
+    cache[key] = true;
+    modulesStr += `'${key}': function(module, exports, require) {
+          ${dependency.code}
+      },`;
+  });
   return `(function(modules) {
       const installedModules = {};
       function require(id) {
@@ -72,11 +79,11 @@ function bundle(fileName) {
           return module.exports;
       }
       return require('${fileName}')
-  })({${modulesStr}})`
+  })({${modulesStr}})`;
 }
 
 module.exports = {
   readCode,
   getAllDependencies,
-  bundle
+  bundle,
 };
